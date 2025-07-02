@@ -1,86 +1,78 @@
+#include <Wire.h>
 #include <Arduino.h>
-#include <math.h>
-
-// === Broches actuateurs ===
-const int ledRouge = 3;
-const int ledVerte = 1;
-const int buzzerPin = 13;
-
-// === Broches capteurs ===
-const int ctn1Pin = 34;  // MES_NTC_1
-const int ctn2Pin = 33;  // MES_NTC_2
-
-// === PWM buzzer ===
-const int buzzerChannel = 0;
-const int buzzerFreq = 4000;
-const int buzzerResolution = 8;
-
-// === Paramètres thermistance ===
-const float Vcc = 3.3;
-const float Rseries = 10000.0;
-const float R0 = 10000.0;
-const float T0_K = 25.0 + 273.15;  // 25 °C en Kelvin
-const float Bcoef = 3950.0;
-
+ 
+#define INA237_ADDR 0x40  // Adresse par défaut, à adapter si nécessaire
+#define SDA_PIN 21
+#define SCL_PIN 22
+ 
 void setup() {
-  // Initialisation série
   Serial.begin(115200);
-  while (!Serial) { delay(10); }  // Pour certains environnements USB
+  Wire.begin(SDA_PIN, SCL_PIN, 400000);
+  Serial.println("INA237 - Test démarré");
+}
 
-  // Signal visuel rapide que le code tourne
-  pinMode(ledRouge, OUTPUT);
-  digitalWrite(ledRouge, HIGH);
-  delay(200);
-  digitalWrite(ledRouge, LOW);
-  delay(200);
-  digitalWrite(ledRouge, HIGH);
 
-  pinMode(ledVerte, OUTPUT);
-  digitalWrite(ledVerte, HIGH);
-
-  // Init PWM buzzer
-  ledcSetup(buzzerChannel, buzzerFreq, buzzerResolution);
-  ledcAttachPin(buzzerPin, buzzerChannel);
-
-  // Init ADC CTN
-  adcAttachPin(ctn1Pin);
-  adcAttachPin(ctn2Pin);
-  analogSetAttenuation(ADC_11db); // Plage max (0 – 3.3 V)
-
-  Serial.println(">>> Boot terminé : LEDs ON, test buzzer...");
-
-  // Test buzzer : 3 bips
-  for (int i = 0; i < 3; i++) {
-    Serial.printf("Bip %d...\n", i + 1);
-    ledcWriteTone(buzzerChannel, buzzerFreq);
-    delay(500);
-    ledcWriteTone(buzzerChannel, 0);
-    delay(1000);
+uint16_t readRegister(uint8_t reg) {
+  Wire.beginTransmission(INA237_ADDR);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) {
+    Serial.println("Erreur I2C");
+    return 0;
   }
-
-  Serial.println(">>> Test buzzer terminé. Lecture CTN en continu...");
+ 
+  Wire.requestFrom(INA237_ADDR, (uint8_t)2);
+  if (Wire.available() == 2) {
+    uint16_t value = (Wire.read() << 8) | Wire.read();
+    return value;
+  }
+  return 0;
+}
+ 
+float readShuntVoltage() {
+  int16_t raw = (int16_t)readRegister(0x04);
+  return raw * 0.005;  // 5µV/LSB => conversion en mV
+}
+ 
+float readBusVoltage() {
+  uint16_t raw = readRegister(0x05);
+  return raw * 0.003125;  // 3.125mV/LSB => conversion en V
+}
+ 
+float readCurrent() {
+  int16_t raw = (int16_t)readRegister(0x07);
+  float current_LSB = 0.001;  // Exemple : 1mA par LSB, à ajuster en fonction de SHUNT_CAL
+  return raw * current_LSB; 
+}
+ 
+float readPower() {
+  uint16_t msb = 0, lsb = 0;
+  Wire.beginTransmission(INA237_ADDR);
+  Wire.write(0x08);
+  if (Wire.endTransmission(false) != 0) {
+    Serial.println("Erreur lecture Power");
+    return 0;
+  }
+  Wire.requestFrom(INA237_ADDR, (uint8_t)3);
+  if (Wire.available() == 3) {
+    uint32_t raw = ((uint32_t)Wire.read() << 16) | ((uint16_t)Wire.read() << 8) | Wire.read();
+    float power_LSB = 0.025;  // Exemple : 25mW par LSB, dépend de SHUNT_CAL
+    return raw * power_LSB;
+  }
+  return 0;
 }
 
 void loop() {
-  // --- CTN1 ---
-  int raw1 = analogRead(ctn1Pin);
-  float voltage1 = raw1 * (Vcc / 4095.0);
-  float Rntc1 = Rseries * (Vcc / voltage1 - 1.0);
-  float tempK1 = 1.0 / ((1.0 / T0_K) + (1.0 / Bcoef) * log(Rntc1 / R0));
-  float tempC1 = tempK1 - 273.15;
-
-  // --- CTN2 ---
-  int raw2 = analogRead(ctn2Pin);
-  float voltage2 = raw2 * (Vcc / 4095.0);
-  float Rntc2 = Rseries * (Vcc / voltage2 - 1.0);
-  float tempK2 = 1.0 / ((1.0 / T0_K) + (1.0 / Bcoef) * log(Rntc2 / R0));
-  float tempC2 = tempK2 - 273.15;
-
-  // --- Affichage terminal ---
-  Serial.println("------ CTN Monitoring ------");
-  Serial.printf("CTN1 (GPIO34) : ADC=%4d | V=%.2f V | R=%.0f Ω | T=%.2f °C\n", raw1, voltage1, Rntc1, tempC1);
-  Serial.printf("CTN2 (GPIO33) : ADC=%4d | V=%.2f V | R=%.0f Ω | T=%.2f °C\n", raw2, voltage2, Rntc2, tempC2);
-  Serial.println("----------------------------");
-
-  delay(1000);  // 1 lecture par seconde
+  float vshunt_mV = readShuntVoltage();
+  float vbus_V = readBusVoltage();
+  float current_mA = readCurrent();
+  float power_mW = readPower();
+ 
+  Serial.print("Vshunt = "); Serial.print(vshunt_mV); Serial.println(" mV");
+  Serial.print("Vbus   = "); Serial.print(vbus_V); Serial.println(" V");
+  Serial.print("Courant= "); Serial.print(current_mA); Serial.println(" mA");
+  Serial.print("Puissance = "); Serial.print(power_mW); Serial.println(" mW");
+  Serial.println("---------------------------");
+ 
+  delay(1000);
 }
+ 
