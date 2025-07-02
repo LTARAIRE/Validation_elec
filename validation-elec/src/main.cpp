@@ -1,18 +1,20 @@
 #include <Arduino.h>
 
-// put function declarations here:
-int myFunction(int, int);
+int ledRouge = 17;  // Broche de la LED rouge
+int ledVerte = 21;  // Broche de la LED verte
 
 void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  Serial.begin(115200); // Initialisation de la communication série
+  
+  pinMode(ledRouge, OUTPUT); // LED rouge en sortie
+  pinMode(ledVerte, OUTPUT); // LED verte en sortie
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-}
+  digitalWrite(ledRouge, HIGH);  // Allume la LED rouge
+  digitalWrite(ledVerte, HIGH);  // Allume la LED verte
 
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
+  Serial.println("LED rouge et LED verte allumées");
+  
+  // Les LED restent allumées en continu
 }
