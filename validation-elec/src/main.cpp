@@ -1,16 +1,20 @@
 #include <Arduino.h>
-
+ 
+int ledRouge = 3;  // Broche de la LED rouge
+int ledVerte = 1;  // Broche de la LED verte
+ 
 void setup() {
-  Serial.begin(115200);
-  while (!Serial) {
-    delay(10); // Attente active si liaison série non encore ouverte
-  }
-
-void loop() {
-  // put your main code here, to run repeatedly:
+  Serial.begin(9600); // Initialisation de la communication série
+ 
+  pinMode(ledRouge, OUTPUT); // LED rouge en sortie
+  pinMode(ledVerte, OUTPUT); // LED verte en sortie
 }
 
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
+void loop() {
+  digitalWrite(ledRouge, HIGH);  // Allume la LED rouge
+  digitalWrite(ledVerte, HIGH);  // Allume la LED verte
+ 
+  Serial.println("LED rouge et LED verte allumées");
+ 
+  // Les LED restent allumées en continu
 }
