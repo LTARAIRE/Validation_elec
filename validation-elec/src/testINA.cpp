@@ -2,119 +2,125 @@
 #include <math.h>
 #include <Arduino.h>
 #include <Wire.h>
-
+#include <Adafruit_INA237.h>
 #include "testINA.h"
 #include "utils.h"
 #include "IOs.h"
 
-
+Adafruit_INA237 ina237 = Adafruit_INA237();
 
 void setupINA237() {
-  // CONFIG: Default range (±163.84mV shunt)
-  writeRegister(REG_CONFIG, 0x0000);
+ if (!ina237.begin()) {
+    Serial.println("Couldn't find INA237 chip");
+    while (1)
+      ;
+  }
+  Serial.println("Found INA237 chip");
+  // set shunt resistance and max current
+  ina237.setShunt(0.0005, 10.0);
 
-  // ADC_CONFIG: Continuous mode, all channels, 1052 µs conversion
-  writeRegister(REG_ADC_CONFIG, 0xFB68);
+  ina237.setAveragingCount(INA2XX_COUNT_16);
+  uint16_t counts[] = {1, 4, 16, 64, 128, 256, 512, 1024};
+  Serial.print("Averaging counts: ");
+  Serial.println(counts[ina237.getAveragingCount()]);
 
-  // SHUNT_CAL: Calculated for the shunt/current_LSB
-  writeRegister(REG_SHUNT_CAL, calcShuntCal());
+  // set the time over which to measure the current and bus voltage
+  ina237.setVoltageConversionTime(INA2XX_TIME_150_us);
+  Serial.print("Voltage conversion time: ");
+  switch (ina237.getVoltageConversionTime()) {
+  case INA2XX_TIME_50_us:
+    Serial.print("50");
+    break;
+  case INA2XX_TIME_84_us:
+    Serial.print("84");
+    break;
+  case INA2XX_TIME_150_us:
+    Serial.print("150");
+    break;
+  case INA2XX_TIME_280_us:
+    Serial.print("280");
+    break;
+  case INA2XX_TIME_540_us:
+    Serial.print("540");
+    break;
+  case INA2XX_TIME_1052_us:
+    Serial.print("1052");
+    break;
+  case INA2XX_TIME_2074_us:
+    Serial.print("2074");
+    break;
+  case INA2XX_TIME_4120_us:
+    Serial.print("4120");
+    break;
+  }
+  Serial.println(" uS");
 
-}
- 
-uint16_t calcShuntCal() {
-  // SHUNT_CAL = 0.00512 / (Current_LSB * R_SHUNT)
-  return (uint16_t)(0.00512 / (CURRENT_LSB * R_SHUNT));
-}
- 
-void writeRegister(uint8_t reg, uint16_t value) {
+  ina237.setCurrentConversionTime(INA2XX_TIME_280_us);
+  Serial.print("Current conversion time: ");
+  switch (ina237.getCurrentConversionTime()) {
+  case INA2XX_TIME_50_us:
+    Serial.print("50");
+    break;
+  case INA2XX_TIME_84_us:
+    Serial.print("84");
+    break;
+  case INA2XX_TIME_150_us:
+    Serial.print("150");
+    break;
+  case INA2XX_TIME_280_us:
+    Serial.print("280");
+    break;
+  case INA2XX_TIME_540_us:
+    Serial.print("540");
+    break;
+  case INA2XX_TIME_1052_us:
+    Serial.print("1052");
+    break;
+  case INA2XX_TIME_2074_us:
+    Serial.print("2074");
+    break;
+  case INA2XX_TIME_4120_us:
+    Serial.print("4120");
+    break;
+  }
+  Serial.println(" uS");
 
-  Wire.beginTransmission(INA237_ADDR);
+  // default polarity for the alert is low on ready, but
+  // it can be inverted!
+  // ina237.setAlertPolarity(1);
 
-  Wire.write(reg);
-
-  Wire.write(value >> 8);
-
-  Wire.write(value & 0xFF);
-
-  Wire.endTransmission();
-
-}
- 
-uint16_t readRegister16(uint8_t reg) {
-
-  Wire.beginTransmission(INA237_ADDR);
-
-  Wire.write(reg);
-
-  Wire.endTransmission(false);
-
-  Wire.requestFrom(INA237_ADDR, 2);
-
-  uint16_t msb = Wire.read();
-
-  uint16_t lsb = Wire.read();
-
-  return (msb << 8) | lsb;
-
-}
- 
-int16_t readRegister16Signed(uint8_t reg) {
-
-  return (int16_t)readRegister16(reg);
-
-}
- 
-uint32_t readRegister24(uint8_t reg) {
-
-  Wire.beginTransmission(INA237_ADDR);
-
-  Wire.write(reg);
-
-  Wire.endTransmission(false);
-
-  Wire.requestFrom(INA237_ADDR, 3);
-
-  uint32_t msb = Wire.read();
-
-  uint32_t mid = Wire.read();
-
-  uint32_t lsb = Wire.read();
-
-  return (msb << 16) | (mid << 8) | lsb;
-
-}
-
-void readINA() {
-  INA_vShuntRaw   = readRegister16Signed(REG_VSHUNT);   // 5µV/LSB, signed
-  INA_vBusRaw     = readRegister16(REG_VBUS);            // 3.125mV/LSB, unsigned
-  INA_tempRaw     = readRegister16(REG_DIETEMP);          // bits [15:4]: signed 12b, 0.125°C/LSB
-  INA_currentRaw  = readRegister16Signed(REG_CURRENT); // Signed, LSB set by SHUNT_CAL
-  INA_powerRaw    = readRegister24(REG_POWER);          // Unsigned
 }
 
 void testINA() {
-// Decode/Convert Values
+  // by default the sensor does continuous reading, but
+  // we can set to triggered mode. to do that, we have to set
+  // the mode to trigger a new reading, then wait for a conversion
+  // either by checking the ALERT pin or reading the ready register
+  // ina237.setMode(INA2XX_MODE_TRIGGERED);
+  // while (!ina237.conversionReady())
+  //  delay(1);
 
-  float   INA_vBus        = INA_vBusRaw * 0.003125;            // Volts
-  float   INA_vShunt      = INA_vShuntRaw * 0.000005;        // Volts (5uV/LSB)
-  int16_t INA_temp12      = INA_tempRaw >> 4;              // Sign-extend
-  float   INA_temperature = INA_temp12 * 0.125;         // °C
-  float   INA_current     = INA_currentRaw * CURRENT_LSB;   // Amps
+  Serial.print("Current: ");
+  Serial.print(ina237.getCurrent_mA());
+  Serial.println(" mA");
 
-  // Power = Power Register × Power_LSB
-  float power = INA_powerRaw * CURRENT_LSB * 0.003125; // Watts
-  
-  // Power_LSB = Current_LSB × VBUS_LSB (VBUS_LSB = 3.125 mV)
- 
-  // Serial Output
+  Serial.print("Bus Voltage: ");
+  Serial.print(ina237.getBusVoltage_V());
+  Serial.println(" V");
 
-  Serial.println("------ INA237 Measurements ------");
-  Serial.printf("SHUNT_CAL = %u\n", calcShuntCal());
-  Serial.printf("Bus Voltage   : %.3f V\n", INA_vBus);
-  Serial.printf("Shunt Voltage : %.6f V\n", INA_vShunt);
-  Serial.printf("Current       : %.3f A\n", INA_current);
-  Serial.printf("Power         : %.3f W\n", power);
-  Serial.printf("Temperature   : %.2f °C\n", INA_temperature);
-  Serial.println("----------------------------------\n");
+  Serial.print("Shunt Voltage: ");
+  Serial.print(ina237.getShuntVoltage_mV() * 1000.0); // Convert from mV to μV
+  Serial.println(" uV");
+
+  Serial.print("Power: ");
+  Serial.print(ina237.getPower_mW());
+  Serial.println(" mW");
+
+  Serial.print("Temperature: ");
+  Serial.print(ina237.readDieTemp());
+  Serial.println(" *C");
+
+  Serial.println();
+  delay(1000);
 
 }

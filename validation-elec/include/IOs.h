@@ -12,8 +12,8 @@
 #define REG_CURRENT      0x07
 #define REG_POWER        0x08
 // === Broches LEDs ===
-const int ledRouge   =   3;
-const int ledVerte   =   1;
+const int ledRouge   =   15;
+const int ledVerte   =   14;
 const int buzzerPin  =   13;
 
 // Broches des CTN
