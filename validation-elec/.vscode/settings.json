@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "test ina": "cpp"
+        "test ina": "cpp",
+        "test": "cpp"
     }
 }
