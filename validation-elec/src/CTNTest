@@ -1,0 +1,39 @@
+#include <Arduino.h>
+#include <math.h>
+
+// Broches des CTN
+const int CTN1_PIN = 26;
+const int CTN2_PIN = 25;
+
+// Constantes pour les CTN
+const float VCC = 3.3;
+const float R_FIXED = 10000.0;     // Résistance fixe (pont diviseur)
+const float R0 = 10000.0;          // Résistance de référence à 25°C
+const float BETA = 3950.0;         // Coefficient B de la CTN
+const float T_REF = 298.15;        // 25°C en Kelvin
+
+float lireTemperature(int pin) {
+  int adc = analogRead(pin);
+  if (adc == 0 || adc >= 4095) return -999.0;  // erreur ou CTN non connectée
+
+  float V = (adc / 4095.0) * VCC;
+  float R = R_FIXED * (V / (VCC - V));
+  float tempK = 1.0 / (1.0 / T_REF + log(R / R0) / BETA);
+  return tempK - 273.15;
+}
+
+void setup() {
+  Serial.begin(115200);
+  analogReadResolution(12);       // Résolution ADC ESP32
+  analogSetAttenuation(ADC_11db); // Plage de lecture étendue (0-3.3V)
+}
+
+void loop() {
+  float temp1 = lireTemperature(CTN1_PIN);
+  float temp2 = lireTemperature(CTN2_PIN);
+
+  Serial.printf("CTN1 : %.2f °C\n", temp1);
+  Serial.printf("CTN2 : %.2f °C\n\n", temp2);
+
+  delay(1000);
+}

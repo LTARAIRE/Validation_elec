@@ -1,78 +1,187 @@
-#include <Wire.h>
 #include <Arduino.h>
+
+#include <Wire.h>
  
-#define INA237_ADDR 0x40  // Adresse par défaut, à adapter si nécessaire
-#define SDA_PIN 21
-#define SCL_PIN 22
+// =============== INA237 Register Addresses ===============
+
+#define INA237_ADDR      0x40  // Change if A0/A1 are wired differently
+
+#define REG_CONFIG       0x00
+
+#define REG_ADC_CONFIG   0x01
+
+#define REG_SHUNT_CAL    0x02
+
+#define REG_VSHUNT       0x04
+
+#define REG_VBUS         0x05
+
+#define REG_DIETEMP      0x06
+
+#define REG_CURRENT      0x07
+
+#define REG_POWER        0x08
  
-void setup() {
-  Serial.begin(115200);
-  Wire.begin(SDA_PIN, SCL_PIN, 400000);
-  Serial.println("INA237 - Test démarré");
+// =============== Calibration Constants ====================
+
+const float R_SHUNT = 0.0005;    // 0.5 mΩ
+
+const float CURRENT_LSB = 0.001; // 1 mA/bit
+ 
+uint16_t calcShuntCal() {
+
+  // SHUNT_CAL = 0.00512 / (Current_LSB * R_SHUNT)
+
+  return (uint16_t)(0.00512 / (CURRENT_LSB * R_SHUNT));
+
 }
+ 
+// =============== I2C Register Functions ===================
 
+void writeRegister(uint8_t reg, uint16_t value) {
 
-uint16_t readRegister(uint8_t reg) {
   Wire.beginTransmission(INA237_ADDR);
+
   Wire.write(reg);
-  if (Wire.endTransmission(false) != 0) {
-    Serial.println("Erreur I2C");
-    return 0;
-  }
- 
-  Wire.requestFrom(INA237_ADDR, (uint8_t)2);
-  if (Wire.available() == 2) {
-    uint16_t value = (Wire.read() << 8) | Wire.read();
-    return value;
-  }
-  return 0;
+
+  Wire.write(value >> 8);
+
+  Wire.write(value & 0xFF);
+
+  Wire.endTransmission();
+
 }
  
-float readShuntVoltage() {
-  int16_t raw = (int16_t)readRegister(0x04);
-  return raw * 0.005;  // 5µV/LSB => conversion en mV
-}
- 
-float readBusVoltage() {
-  uint16_t raw = readRegister(0x05);
-  return raw * 0.003125;  // 3.125mV/LSB => conversion en V
-}
- 
-float readCurrent() {
-  int16_t raw = (int16_t)readRegister(0x07);
-  float current_LSB = 0.001;  // Exemple : 1mA par LSB, à ajuster en fonction de SHUNT_CAL
-  return raw * current_LSB; 
-}
- 
-float readPower() {
-  uint16_t msb = 0, lsb = 0;
+uint16_t readRegister16(uint8_t reg) {
+
   Wire.beginTransmission(INA237_ADDR);
-  Wire.write(0x08);
-  if (Wire.endTransmission(false) != 0) {
-    Serial.println("Erreur lecture Power");
-    return 0;
-  }
-  Wire.requestFrom(INA237_ADDR, (uint8_t)3);
-  if (Wire.available() == 3) {
-    uint32_t raw = ((uint32_t)Wire.read() << 16) | ((uint16_t)Wire.read() << 8) | Wire.read();
-    float power_LSB = 0.025;  // Exemple : 25mW par LSB, dépend de SHUNT_CAL
-    return raw * power_LSB;
-  }
-  return 0;
+
+  Wire.write(reg);
+
+  Wire.endTransmission(false);
+
+  Wire.requestFrom(INA237_ADDR, 2);
+
+  uint16_t msb = Wire.read();
+
+  uint16_t lsb = Wire.read();
+
+  return (msb << 8) | lsb;
+
 }
+ 
+int16_t readRegister16Signed(uint8_t reg) {
+
+  return (int16_t)readRegister16(reg);
+
+}
+ 
+uint32_t readRegister24(uint8_t reg) {
+
+  Wire.beginTransmission(INA237_ADDR);
+
+  Wire.write(reg);
+
+  Wire.endTransmission(false);
+
+  Wire.requestFrom(INA237_ADDR, 3);
+
+  uint32_t msb = Wire.read();
+
+  uint32_t mid = Wire.read();
+
+  uint32_t lsb = Wire.read();
+
+  return (msb << 16) | (mid << 8) | lsb;
+
+}
+ 
+// =============== INA237 Initialization ====================
+
+void setupINA237() {
+
+  // CONFIG: Default range (±163.84mV shunt)
+
+  writeRegister(REG_CONFIG, 0x0000);
+
+  // ADC_CONFIG: Continuous mode, all channels, 1052 µs conversion
+
+  writeRegister(REG_ADC_CONFIG, 0xFB68);
+
+  // SHUNT_CAL: Calculated for your shunt/current_LSB
+
+  writeRegister(REG_SHUNT_CAL, calcShuntCal());
+
+}
+ 
+// =============== Arduino Setup ============================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  Wire.begin(); // ESP32 default: SDA=21, SCL=22
+
+  setupINA237();
+
+  delay(100);
+
+  Serial.printf("SHUNT_CAL = %u\n", calcShuntCal());
+
+}
+ 
+// =============== Main Loop ===============================
 
 void loop() {
-  float vshunt_mV = readShuntVoltage();
-  float vbus_V = readBusVoltage();
-  float current_mA = readCurrent();
-  float power_mW = readPower();
+
+  // Read Raw Registers
+
+  int16_t vShuntRaw = readRegister16Signed(REG_VSHUNT);   // 5µV/LSB, signed
+
+  uint16_t vBusRaw = readRegister16(REG_VBUS);            // 3.125mV/LSB, unsigned
+
+  int16_t tempRaw = readRegister16(REG_DIETEMP);          // bits [15:4]: signed 12b, 0.125°C/LSB
+
+  int16_t currentRaw = readRegister16Signed(REG_CURRENT); // Signed, LSB set by SHUNT_CAL
+
+  uint32_t powerRaw = readRegister24(REG_POWER);          // Unsigned
  
-  Serial.print("Vshunt = "); Serial.print(vshunt_mV); Serial.println(" mV");
-  Serial.print("Vbus   = "); Serial.print(vbus_V); Serial.println(" V");
-  Serial.print("Courant= "); Serial.print(current_mA); Serial.println(" mA");
-  Serial.print("Puissance = "); Serial.print(power_mW); Serial.println(" mW");
-  Serial.println("---------------------------");
+  // Decode/Convert Values
+
+  float vBus = vBusRaw * 0.003125;            // Volts
+
+  float vShunt = vShuntRaw * 0.000005;        // Volts (5uV/LSB)
+
+  int16_t temp12 = tempRaw >> 4;              // Sign-extend
+
+  float temperature = temp12 * 0.125;         // °C
+
+  float current = currentRaw * CURRENT_LSB;   // Amps
+
+  // Power per datasheet: Power = Power Register × Power_LSB
+
+  // Power_LSB = Current_LSB × VBUS_LSB (VBUS_LSB = 3.125 mV)
+
+  float power = powerRaw * CURRENT_LSB * 0.003125; // Watts
+ 
+  // Serial Output
+
+  Serial.println("------ INA237 Measurements ------");
+
+  Serial.printf("Bus Voltage   : %.3f V\n", vBus);
+
+  Serial.printf("Shunt Voltage : %.6f V\n", vShunt);
+
+  Serial.printf("Current       : %.3f A\n", current);
+
+  Serial.printf("Power         : %.3f W\n", power);
+
+  Serial.printf("Temperature   : %.2f °C\n", temperature);
+
+  Serial.println("----------------------------------\n");
  
   delay(1000);
+
 }
+
  
