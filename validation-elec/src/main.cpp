@@ -11,6 +11,7 @@
 #include "testLED.h"
 #include "testINA.h"
 #include "IOs.h"
+#include "testBLE.h"
 
 void setup() {
 
@@ -22,6 +23,8 @@ void setup() {
   setupBuzzer();
   setupCTN();
   setupLED();
+  testBuzzer();
+  testBLE();
 
   delay(100);
 
@@ -30,7 +33,6 @@ void setup() {
 // =============== Main Loop ===============================
 
 void loop() {
-  testBuzzer();
   testCTN();
   testLED();
   testINA();

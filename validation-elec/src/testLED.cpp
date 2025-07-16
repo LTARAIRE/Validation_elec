@@ -10,9 +10,11 @@ void setupLED() {
 void testLED() {
   digitalWrite(ledRouge, HIGH);
   digitalWrite(ledVerte, LOW);
-  delay(100);
-  digitalWrite(ledVerte, HIGH);
+  delay(500);
   digitalWrite(ledRouge, LOW);
+  digitalWrite(ledVerte, HIGH);
+  delay(500);
+  digitalWrite(ledVerte, LOW);
   delay(100);
 }
 
